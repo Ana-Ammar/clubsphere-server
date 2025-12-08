@@ -1,7 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const app = express();
 const port = process.env.PORT || 5165;
 
@@ -29,45 +29,69 @@ async function run() {
     const db = client.db("clubsphere");
     const usersCollection = db.collection("users");
     const clubsCollection = db.collection("clubs");
+    const membershipsCollection = db.collection("memberships")
     const eventsCollection = db.collection("events");
+    const eventRegistrationsCollection = db.collection("eventRegistrations")
 
     // User related apis
     app.post("/users", async (req, res) => {
-      try {
-        const user = req.body;
-        user.role = "member";
-        user.createdAt = new Date();
-        const existUser = await usersCollection.findOne({ email: user.email });
-        if (existUser) {
-          return res.send({ message: "User already exist" });
-        }
-        const result = await usersCollection.insertOne(user);
-        res.send(result);
-      } catch (error) {
-        console.error("Error in adding user to database:", error);
-        res.status(500).send({ message: "Failed to add user" });
+      const user = req.body;
+      user.role = "member";
+      user.createdAt = new Date();
+      const existUser = await usersCollection.findOne({ email: user.email });
+      if (existUser) {
+        return res.send({ message: "User already exist" });
       }
+      const result = await usersCollection.insertOne(user);
+      res.send(result);
     });
 
     app.get("/users", async (req, res) => {
-      try {
-        const users = await usersCollection.find().toArray();
-        res.send(users);
-      } catch (error) {
-        console.error("Error fetching data from usersCollection: ", error);
-        res.status(500).send({ message: "Failed to fetch users" });
-      }
+      const users = await usersCollection.find().toArray();
+      res.send(users);
     });
 
     // clubs related apis
     app.get("/clubs", async (req, res) => {
-      try {
-        const clubs = await clubsCollection.find().toArray();
-        res.send(clubs);
-      } catch (error) {
-        console.error("Error fetching data from clubsCollection: ", error);
-        res.status(500).send({ message: "Failed to fetch clubs" });
+      const query = {};
+      const { managerEmail } = req.query;
+      if (managerEmail) {
+        query.managerEmail = managerEmail;
       }
+      const clubs = await clubsCollection.find(query).toArray();
+      res.send(clubs);
+    });
+
+    app.get("/clubs/:id", async (req, res) => {
+      const club = await clubsCollection.findOne({
+        _id: new ObjectId(req.params.id),
+      });
+      res.send(club);
+    });
+
+    app.post("/clubs", async (req, res) => {
+      const club = req.body;
+      club.status = "pending";
+      club.createdAt = new Date();
+      const result = await clubsCollection.insertOne(club);
+      res.send(result);
+    });
+
+    app.patch("/clubs/:id", async (req, res) => {
+      const query = { _id: new ObjectId(req.params.id) };
+      const data = req.body;
+      const update = { $set: data };
+      const result = await clubsCollection.updateOne(query, update);
+      res.send(result);
+    });
+
+    // For status update (Admin)
+    app.patch("/clubs/:id/status", async (req, res) => {
+      const query = { _id: new ObjectId(req.params.id) };
+      const { status } = req.body;
+      const updateStatus = { $set: { status } };
+      const result = await clubsCollection.updateOne(query, updateStatus);
+      res.send(result);
     });
 
     await client.db("admin").command({ ping: 1 });
