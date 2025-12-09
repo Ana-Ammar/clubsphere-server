@@ -29,9 +29,9 @@ async function run() {
     const db = client.db("clubsphere");
     const usersCollection = db.collection("users");
     const clubsCollection = db.collection("clubs");
-    const membershipsCollection = db.collection("memberships")
+    const membershipsCollection = db.collection("memberships");
     const eventsCollection = db.collection("events");
-    const eventRegistrationsCollection = db.collection("eventRegistrations")
+    const eventRegistrationsCollection = db.collection("eventRegistrations");
 
     // User related apis
     app.post("/users", async (req, res) => {
@@ -45,22 +45,48 @@ async function run() {
       const result = await usersCollection.insertOne(user);
       res.send(result);
     });
+    
 
     app.get("/users", async (req, res) => {
       const users = await usersCollection.find().toArray();
       res.send(users);
     });
 
+
+    app.get("/users/:email/role", async (req, res) => {
+      const { email } = req.params;
+      const query = { email };
+      const role = await usersCollection.findOne(query, {
+        projection: { role: 1, _id: 0 },
+      });
+      res.send(role);
+    });
+
+
+    app.patch("/users/:id/role", async (req, res) => {
+      const { id } = req.params;
+      const query = { _id: new ObjectId(id) };
+      const { role } = req.body;
+      const updateRole = { $set: { role } };
+      const result = await usersCollection.updateOne(query, updateRole);
+      res.send(result);
+    });
+
+
     // clubs related apis
     app.get("/clubs", async (req, res) => {
       const query = {};
-      const { managerEmail } = req.query;
+      const { managerEmail, status } = req.query;
       if (managerEmail) {
         query.managerEmail = managerEmail;
+      }
+      if (status) {
+        query.status = status;
       }
       const clubs = await clubsCollection.find(query).toArray();
       res.send(clubs);
     });
+
 
     app.get("/clubs/:id", async (req, res) => {
       const club = await clubsCollection.findOne({
@@ -69,6 +95,7 @@ async function run() {
       res.send(club);
     });
 
+
     app.post("/clubs", async (req, res) => {
       const club = req.body;
       club.status = "pending";
@@ -76,6 +103,7 @@ async function run() {
       const result = await clubsCollection.insertOne(club);
       res.send(result);
     });
+
 
     app.patch("/clubs/:id", async (req, res) => {
       const query = { _id: new ObjectId(req.params.id) };
@@ -93,6 +121,102 @@ async function run() {
       const result = await clubsCollection.updateOne(query, updateStatus);
       res.send(result);
     });
+
+    // membership apis
+
+    app.post("/memberships", async (req, res) => {
+      const membership = req.body;
+      membership.status = "active";
+      membership.joinedAt = new Date();
+      const isMember = await membershipsCollection.findOne({
+        userEmail: membership.userEmail,
+      });
+      if(isMember){
+        return res.send({message: "User already member of this club"})
+      }
+      const result = await membershipsCollection.insertOne(membership);
+      res.send(result);
+    });
+
+
+    app.get("/memberships", async (req, res) => {
+      const { userEmail, clubId } = req.query;
+      const query = {};
+      if (userEmail) {
+        query.userEmail = userEmail;
+      }
+      if (clubId) {
+        query.clubId = clubId;
+      }
+      const memberships = await membershipsCollection.find(query).toArray();
+      res.send(memberships);
+    });
+
+    // events related api -------->
+
+    app.post("/events", async (req, res) => {
+      const event = req.body;
+      event.createdAt = new Date();
+      const query = { _id: new ObjectId(event.clubId) };
+      const club = await clubsCollection.findOne(query);
+      if (!club || club.status !== "approved") {
+        return res
+          .status(403)
+          .send({ message: "Cannot create event. Club is not approved." });
+      }
+      const result = await eventsCollection.insertOne(event);
+      res.send(result);
+    });
+
+    app.get("/events", async (req, res) => {
+      const { clubId } = req.query;
+      const query = {};
+      if (clubId) {
+        query.clubId = clubId;
+      }
+      const events = await eventsCollection.find(query).toArray();
+      res.send(events);
+    });
+
+    app.get("/events/:id", async (req, res) => {
+      const events = await eventsCollection.find().toArray();
+      res.send(events);
+    });
+
+
+    // eventRegistrations
+
+    app.post("/eventRegistrations", async (req, res) => {
+      const registration = req.body;
+      registration.status = "registered";
+      registration.registeredAt = new Date();
+      const isRegistered = await eventRegistrationsCollection.findOne({
+        userEmail: registration.userEmail,
+      });
+      if (isRegistered) {
+        return res.send({ message: "user already regisetered" });
+      }
+      const result = await eventRegistrationsCollection.insertOne(registration);
+      res.send(result);
+    });
+
+
+    app.get("/eventRegistrations", async (req, res) => {
+      const { userEmail, eventId } = req.query;
+      const query = {};
+      if (userEmail) {
+        query.userEmail = userEmail;
+      }
+      if (eventId) {
+        query.eventId = eventId;
+      }
+      const eventRegistrations = await eventRegistrationsCollection
+        .find(query)
+        .toArray();
+      res.send(eventRegistrations);
+    });
+
+
 
     await client.db("admin").command({ ping: 1 });
     console.log(
