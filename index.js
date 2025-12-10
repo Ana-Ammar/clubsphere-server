@@ -33,6 +33,27 @@ async function run() {
     const eventsCollection = db.collection("events");
     const eventRegistrationsCollection = db.collection("eventRegistrations");
 
+
+    // summary apis
+    app.get("/admin-summary", async(req, res) => {
+      const users = await usersCollection.countDocuments()
+      const totalClubs = await clubsCollection.countDocuments(  )
+      const approvedClubs = await clubsCollection.countDocuments({status: "approved"})
+      const pendingClubs = await clubsCollection.countDocuments({status: "pending"})
+      const rejectedClubs = await clubsCollection.countDocuments({status: "rejected"})
+      const members = await membershipsCollection.countDocuments()
+      const events = await eventsCollection.countDocuments()
+      res.send({
+        users,
+        totalClubs, 
+        approvedClubs,
+        pendingClubs,
+        rejectedClubs,
+        members,
+        events
+      })
+    })
+
     // User related apis
     app.post("/users", async (req, res) => {
       const user = req.body;
@@ -45,13 +66,11 @@ async function run() {
       const result = await usersCollection.insertOne(user);
       res.send(result);
     });
-    
 
     app.get("/users", async (req, res) => {
       const users = await usersCollection.find().toArray();
       res.send(users);
     });
-
 
     app.get("/users/:email/role", async (req, res) => {
       const { email } = req.params;
@@ -62,7 +81,6 @@ async function run() {
       res.send(role);
     });
 
-
     app.patch("/users/:id/role", async (req, res) => {
       const { id } = req.params;
       const query = { _id: new ObjectId(id) };
@@ -71,7 +89,6 @@ async function run() {
       const result = await usersCollection.updateOne(query, updateRole);
       res.send(result);
     });
-
 
     // clubs related apis
     app.get("/clubs", async (req, res) => {
@@ -87,14 +104,12 @@ async function run() {
       res.send(clubs);
     });
 
-
     app.get("/clubs/:id", async (req, res) => {
       const club = await clubsCollection.findOne({
         _id: new ObjectId(req.params.id),
       });
       res.send(club);
     });
-
 
     app.post("/clubs", async (req, res) => {
       const club = req.body;
@@ -103,7 +118,6 @@ async function run() {
       const result = await clubsCollection.insertOne(club);
       res.send(result);
     });
-
 
     app.patch("/clubs/:id", async (req, res) => {
       const query = { _id: new ObjectId(req.params.id) };
@@ -131,13 +145,12 @@ async function run() {
       const isMember = await membershipsCollection.findOne({
         userEmail: membership.userEmail,
       });
-      if(isMember){
-        return res.send({message: "User already member of this club"})
+      if (isMember) {
+        return res.send({ message: "User already member of this club" });
       }
       const result = await membershipsCollection.insertOne(membership);
       res.send(result);
     });
-
 
     app.get("/memberships", async (req, res) => {
       const { userEmail, clubId } = req.query;
@@ -179,10 +192,11 @@ async function run() {
     });
 
     app.get("/events/:id", async (req, res) => {
-      const events = await eventsCollection.find().toArray();
+      const { id } = req.params;
+      const query = { _id: new ObjectId(id) };
+      const events = await eventsCollection.find(query).toArray();
       res.send(events);
     });
-
 
     // eventRegistrations
 
@@ -200,7 +214,6 @@ async function run() {
       res.send(result);
     });
 
-
     app.get("/eventRegistrations", async (req, res) => {
       const { userEmail, eventId } = req.query;
       const query = {};
@@ -215,8 +228,6 @@ async function run() {
         .toArray();
       res.send(eventRegistrations);
     });
-
-
 
     await client.db("admin").command({ ping: 1 });
     console.log(
