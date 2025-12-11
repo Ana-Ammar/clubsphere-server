@@ -32,27 +32,56 @@ async function run() {
     const membershipsCollection = db.collection("memberships");
     const eventsCollection = db.collection("events");
     const eventRegistrationsCollection = db.collection("eventRegistrations");
-
+    const paymentsCollecttion = db.collection("payments");
 
     // summary apis
-    app.get("/admin-summary", async(req, res) => {
-      const users = await usersCollection.countDocuments()
-      const totalClubs = await clubsCollection.countDocuments(  )
-      const approvedClubs = await clubsCollection.countDocuments({status: "approved"})
-      const pendingClubs = await clubsCollection.countDocuments({status: "pending"})
-      const rejectedClubs = await clubsCollection.countDocuments({status: "rejected"})
-      const members = await membershipsCollection.countDocuments()
-      const events = await eventsCollection.countDocuments()
+    app.get("/admin-summary", async (req, res) => {
+      const users = await usersCollection.countDocuments();
+      const totalClubs = await clubsCollection.countDocuments();
+      const approvedClubs = await clubsCollection.countDocuments({
+        status: "approved",
+      });
+      const pendingClubs = await clubsCollection.countDocuments({
+        status: "pending",
+      });
+      const rejectedClubs = await clubsCollection.countDocuments({
+        status: "rejected",
+      });
+      const members = await membershipsCollection.countDocuments();
+      const events = await eventsCollection.countDocuments();
       res.send({
         users,
-        totalClubs, 
+        totalClubs,
         approvedClubs,
         pendingClubs,
         rejectedClubs,
         members,
-        events
-      })
-    })
+        events,
+      });
+    });
+
+    // club manager api
+    app.get("/club-manager-summary/:email", async (req, res) => {
+      const managerEmail = req.params.email;
+      const clubs = await clubsCollection.find({ managerEmail }).toArray();
+      const clubIds = clubs.map((c) => c._id.toString());
+      const members = await membershipsCollection.countDocuments({
+        clubId: { $in: clubIds },
+      });
+      const events = await eventsCollection.countDocuments({
+        clubId: { $in: clubIds },
+      });
+      const payments = await paymentsCollecttion.countDocuments({
+        clubId: { $in: clubIds },
+      });
+
+      res.send({
+        clubs,
+        members,
+        events,
+        payments,
+      });
+    });
 
     // User related apis
     app.post("/users", async (req, res) => {
@@ -165,8 +194,16 @@ async function run() {
       res.send(memberships);
     });
 
-    // events related api -------->
+    // For club manager
+    app.patch("/memberships/:id/status", async (req, res) => {
+      const query = { _id: new ObjectId(req.params.id) };
+      const { status } = req.body;
+      const updateStatus = { $set: { status } };
+      const result = await membershipsCollection.updateOne(query, updateStatus);
+      res.send(result);
+    });
 
+    // events related api -------->
     app.post("/events", async (req, res) => {
       const event = req.body;
       event.createdAt = new Date();
@@ -198,8 +235,23 @@ async function run() {
       res.send(events);
     });
 
-    // eventRegistrations
+    app.patch("/events/:id", async (req, res) => {
+      const query = { _id: new ObjectId(req.params.id) };
+      const data = req.body;
+      const update = { $set: data };
+      const result = await eventsCollection.updateOne(query, update);
+      res.send(result);
+    });
 
+
+    app.delete("/events/:id", async (req, res) => {
+      const { id } = req.params;
+      const query = { _id: new ObjectId(id) };
+      const result = await eventsCollection.deleteOne(query);
+      res.send(result);
+    });
+
+    // eventRegistrations
     app.post("/eventRegistrations", async (req, res) => {
       const registration = req.body;
       registration.status = "registered";
@@ -227,6 +279,20 @@ async function run() {
         .find(query)
         .toArray();
       res.send(eventRegistrations);
+    });
+
+    // payment related apis
+
+    app.get("/payments", async (req, res) => {
+      const query = {};
+      const payments = await paymentsCollecttion.find(query).toArray();
+      res.send(payments);
+    });
+
+    app.post("/payments", async (req, res) => {
+      const paymentInfo = req.body;
+      const payments = await paymentsCollecttion.insertOne(paymentInfo);
+      res.send(payments);
     });
 
     await client.db("admin").command({ ping: 1 });
