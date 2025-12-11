@@ -34,7 +34,7 @@ async function run() {
     const eventRegistrationsCollection = db.collection("eventRegistrations");
     const paymentsCollecttion = db.collection("payments");
 
-    // summary apis
+    // admin summary apis
     app.get("/admin-summary", async (req, res) => {
       const users = await usersCollection.countDocuments();
       const totalClubs = await clubsCollection.countDocuments();
@@ -81,6 +81,117 @@ async function run() {
         events,
         payments,
       });
+    });
+
+    // member overview
+    app.get("/member-summary/:email", async (req, res) => {
+      const userEmail = req.params.email;
+      const clubsJoinedCount = await membershipsCollection.countDocuments({
+        userEmail,
+      });
+      const eventsRegisteredCount =
+        await eventRegistrationsCollection.countDocuments({ userEmail });
+      const joinedClubs = await membershipsCollection
+        .find({ userEmail })
+        .toArray();
+      const clubIds = joinedClubs.map((event) => event.clubId);
+
+      const upcomingEvents = await eventsCollection
+        .find({
+          clubId: { $in: clubIds },
+        })
+        .toArray();
+
+      res.send({
+        clubsJoinedCount,
+        eventsRegisteredCount,
+        upcomingEvents,
+      });
+    });
+
+    // member my-club
+    app.get("/my-clubs/:email", async (req, res) => {
+      const userEmail = req.params.email;
+      const pipeline = [
+        {
+          $match: {
+            userEmail: userEmail,
+            status: "active",
+          },
+        },
+        {
+          $addFields: { clubId: { $toObjectId: "$clubId" } },
+        },
+        {
+          $lookup: {
+            from: "clubs",
+            localField: "clubId",
+            foreignField: "_id",
+            as: "clubInfo",
+          },
+        },
+        { $unwind: "$clubInfo" },
+        {
+          $project: {
+            _id: 0,
+            clubId: "$clubId",
+            clubName: "$clubInfo.clubName",
+            location: "$clubInfo.location",
+            status: 1,
+          },
+        },
+      ];
+      const result = await membershipsCollection.aggregate(pipeline).toArray();
+      res.send(result);
+    });
+
+    // member my events
+    app.get("/my-events/:email", async (req, res) => {
+      const userEmail = req.params.email;
+      const pipeline = [
+        { $match: { userEmail } },
+        {
+          $addFields: { eventId: { $toObjectId: "$eventId" } },
+        },
+
+        {
+          $lookup: {
+            from: "events",
+            localField: "eventId",
+            foreignField: "_id",
+            as: "eventInfo",
+          },
+        },
+        { $unwind: "$eventInfo" },
+
+        {
+          $addFields: { clubId: { $toObjectId: "$eventInfo.clubId" } },
+        },
+        {
+          $lookup: {
+            from: "clubs",
+            localField: "clubId",
+            foreignField: "_id",
+            as: "clubInfo",
+          },
+        },
+        { $unwind: "$clubInfo" },
+
+        {
+          $project: {
+            _id: 0,
+            eventTitle: "$eventInfo.title",
+            eventDate: "$eventInfo.date",
+            eventStatus: "$status",
+            clubName: "$clubInfo.clubName",
+          },
+        },
+      ];
+
+      const result = await eventRegistrationsCollection
+        .aggregate(pipeline)
+        .toArray();
+      res.send(result);
     });
 
     // User related apis
@@ -243,7 +354,6 @@ async function run() {
       res.send(result);
     });
 
-
     app.delete("/events/:id", async (req, res) => {
       const { id } = req.params;
       const query = { _id: new ObjectId(id) };
@@ -279,6 +389,46 @@ async function run() {
         .find(query)
         .toArray();
       res.send(eventRegistrations);
+    });
+
+    app.get("/total-event-registration/:managerEmail", async (req, res) => {
+      const { managerEmail } = req.params;
+
+      const pipeline = [
+        {
+          $match: { managerEmail: managerEmail },
+        },
+
+        {
+          $lookup: {
+            from: "events",
+            localField: "_id",
+            foreignField: "clubId",
+            as: "events",
+          },
+        },
+        { $unwind: { path: "$events", preserveNullAndEmptyArrays: true } },
+
+        {
+          $lookup: {
+            from: "eventRegistrations",
+            localField: "events._id",
+            foreignField: "eventId",
+            as: "events.registrations",
+          },
+        },
+        {
+          $addFields: {
+            "events.clubName": "$clubName",
+          },
+        },
+        {
+          $replaceWith: "$events",
+        },
+      ];
+
+      const result = await clubsCollection.aggregate(pipeline).toArray();
+      res.send(result);
     });
 
     // payment related apis
