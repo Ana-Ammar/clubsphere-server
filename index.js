@@ -298,6 +298,16 @@ async function run() {
       res.send(clubs);
     });
 
+    // homepage
+    app.get("/latest-clubs", async (req, res) => {
+      const latestClubs = await clubsCollection
+        .find({ status: "approved" })
+        .sort({ createdAt: -1 })
+        .limit(6)
+        .toArray();
+      res.send(latestClubs);
+    });
+
     app.get("/clubs/:id", verifyFBToken, async (req, res) => {
       const club = await clubsCollection.findOne({
         _id: new ObjectId(req.params.id),
@@ -368,13 +378,21 @@ async function run() {
     });
 
     // For club manager
-    app.patch("/memberships/:id/status", verifyFBToken, verifyManager, async (req, res) => {
-      const query = { _id: new ObjectId(req.params.id) };
-      const { status } = req.body;
-      const updateStatus = { $set: { status } };
-      const result = await membershipsCollection.updateOne(query, updateStatus);
-      res.send(result);
-    });
+    app.patch(
+      "/memberships/:id/status",
+      verifyFBToken,
+      verifyManager,
+      async (req, res) => {
+        const query = { _id: new ObjectId(req.params.id) };
+        const { status } = req.body;
+        const updateStatus = { $set: { status } };
+        const result = await membershipsCollection.updateOne(
+          query,
+          updateStatus
+        );
+        res.send(result);
+      }
+    );
 
     // events related api -------->
     app.post("/events", verifyFBToken, verifyManager, async (req, res) => {
@@ -416,12 +434,17 @@ async function run() {
       res.send(result);
     });
 
-    app.delete("/events/:id", verifyFBToken, verifyManager, async (req, res) => {
-      const { id } = req.params;
-      const query = { _id: new ObjectId(id) };
-      const result = await eventsCollection.deleteOne(query);
-      res.send(result);
-    });
+    app.delete(
+      "/events/:id",
+      verifyFBToken,
+      verifyManager,
+      async (req, res) => {
+        const { id } = req.params;
+        const query = { _id: new ObjectId(id) };
+        const result = await eventsCollection.deleteOne(query);
+        res.send(result);
+      }
+    );
 
     // eventRegistrations
     app.post("/eventRegistrations", verifyFBToken, async (req, res) => {
@@ -430,7 +453,7 @@ async function run() {
       registration.registeredAt = new Date();
       const isRegistered = await eventRegistrationsCollection.findOne({
         userEmail: registration.userEmail,
-        eventId: registration.eventId
+        eventId: registration.eventId,
       });
       if (isRegistered) {
         return res
@@ -467,48 +490,53 @@ async function run() {
       res.send(eventRegistrations);
     });
 
-    app.get("/total-event-registration/:managerEmail", verifyFBToken, verifyManager, async (req, res) => {
-      const { managerEmail } = req.params;
+    app.get(
+      "/total-event-registration/:managerEmail",
+      verifyFBToken,
+      verifyManager,
+      async (req, res) => {
+        const { managerEmail } = req.params;
 
-      const pipeline = [
-        {
-          $match: { managerEmail: managerEmail },
-        },
+        const pipeline = [
+          {
+            $match: { managerEmail: managerEmail },
+          },
 
-        {
-          $lookup: {
-            from: "events",
-            localField: "_id",
-            foreignField: "clubId",
-            as: "events",
+          {
+            $lookup: {
+              from: "events",
+              localField: "_id",
+              foreignField: "clubId",
+              as: "events",
+            },
           },
-        },
-        { $unwind: { path: "$events", preserveNullAndEmptyArrays: true } },
+          { $unwind: { path: "$events", preserveNullAndEmptyArrays: true } },
 
-        {
-          $lookup: {
-            from: "eventRegistrations",
-            localField: "events._id",
-            foreignField: "eventId",
-            as: "events.registrations",
+          {
+            $lookup: {
+              from: "eventRegistrations",
+              localField: "events._id",
+              foreignField: "eventId",
+              as: "events.registrations",
+            },
           },
-        },
-        {
-          $addFields: {
-            "events.clubName": "$clubName",
+          {
+            $addFields: {
+              "events.clubName": "$clubName",
+            },
           },
-        },
-        {
-          $replaceWith: "$events",
-        },
-      ];
-      const result = await clubsCollection.aggregate(pipeline).toArray();
-      res.send(result);
-    });
+          {
+            $replaceWith: "$events",
+          },
+        ];
+        const result = await clubsCollection.aggregate(pipeline).toArray();
+        res.send(result);
+      }
+    );
 
     // payment related apis
     // Api for payment, stripe-chechkout-session
-    app.post("/payment-checkout-session",verifyFBToken, async (req, res) => {
+    app.post("/payment-checkout-session", verifyFBToken, async (req, res) => {
       const paymentInfo = req.body;
       const amount = Math.round(Number(paymentInfo.membershipFee) * 100);
       const session = await stripe.checkout.sessions.create({
