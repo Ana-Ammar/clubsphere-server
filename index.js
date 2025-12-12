@@ -5,10 +5,31 @@ const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const stripe = require("stripe")(process.env.STRIPE_SECRET);
 const app = express();
 const port = process.env.PORT || 5165;
+const admin = require("firebase-admin");
+var serviceAccount = require("./firebase-admin-key.json");
+
+// initialize firebase credential
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
 
 // Middlewire
 app.use(cors());
 app.use(express.json());
+
+// Firebase Token verify
+const verifyFBToken = async (req, res, next) => {
+  const token = req.headers.authorization;
+  if (!token) {
+    return res.status(401).send({ message: "Unauthorized access" });
+  }
+  try {
+    const idToken = token.split(" ")[1];
+    const decoded = await admin.auth().verifyIdToken(idToken);
+    req.decoded_email = decoded.email;
+  } catch (error) {}
+  next();
+};
 
 // Mongodb
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.lh2xuij.mongodb.net/?appName=Cluster0`;
@@ -35,8 +56,30 @@ async function run() {
     const eventRegistrationsCollection = db.collection("eventRegistrations");
     const paymentsCollecttion = db.collection("payments");
 
+    // Verify admin middlewire
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded_email;
+      const query = { email };
+      const user = await usersCollection.findOne(query);
+      if (!user || user.role !== "admin") {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      next();
+    };
+
+    // Verify admin middlewire
+    const verifyManager = async (req, res, next) => {
+      const email = req.decoded_email;
+      const query = { email };
+      const user = await usersCollection.findOne(query);
+      if (!user || user.role !== "clubManager") {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      next();
+    };
+
     // admin summary apis
-    app.get("/admin-summary", async (req, res) => {
+    app.get("/admin-summary", verifyFBToken, verifyAdmin, async (req, res) => {
       const users = await usersCollection.countDocuments();
       const totalClubs = await clubsCollection.countDocuments();
       const approvedClubs = await clubsCollection.countDocuments({
@@ -62,30 +105,35 @@ async function run() {
     });
 
     // club manager api
-    app.get("/club-manager-summary/:email", async (req, res) => {
-      const managerEmail = req.params.email;
-      const clubs = await clubsCollection.find({ managerEmail }).toArray();
-      const clubIds = clubs.map((c) => c._id.toString());
-      const members = await membershipsCollection.countDocuments({
-        clubId: { $in: clubIds },
-      });
-      const events = await eventsCollection.countDocuments({
-        clubId: { $in: clubIds },
-      });
-      const payments = await paymentsCollecttion.countDocuments({
-        clubId: { $in: clubIds },
-      });
+    app.get(
+      "/club-manager-summary/:email",
+      verifyFBToken,
+      verifyManager,
+      async (req, res) => {
+        const managerEmail = req.params.email;
+        const clubs = await clubsCollection.find({ managerEmail }).toArray();
+        const clubIds = clubs.map((c) => c._id.toString());
+        const members = await membershipsCollection.countDocuments({
+          clubId: { $in: clubIds },
+        });
+        const events = await eventsCollection.countDocuments({
+          clubId: { $in: clubIds },
+        });
+        const payments = await paymentsCollecttion.countDocuments({
+          clubId: { $in: clubIds },
+        });
 
-      res.send({
-        clubs,
-        members,
-        events,
-        payments,
-      });
-    });
+        res.send({
+          clubs,
+          members,
+          events,
+          payments,
+        });
+      }
+    );
 
     // member overview
-    app.get("/member-summary/:email", async (req, res) => {
+    app.get("/member-summary/:email", verifyFBToken, async (req, res) => {
       const userEmail = req.params.email;
       const clubsJoinedCount = await membershipsCollection.countDocuments({
         userEmail,
@@ -111,7 +159,7 @@ async function run() {
     });
 
     // member my-club
-    app.get("/my-clubs/:email", async (req, res) => {
+    app.get("/my-clubs/:email", verifyFBToken, async (req, res) => {
       const userEmail = req.params.email;
       const pipeline = [
         {
@@ -147,7 +195,7 @@ async function run() {
     });
 
     // member my events
-    app.get("/my-events/:email", async (req, res) => {
+    app.get("/my-events/:email", verifyFBToken, async (req, res) => {
       const userEmail = req.params.email;
       const pipeline = [
         { $match: { userEmail } },
@@ -208,12 +256,12 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/users", async (req, res) => {
+    app.get("/users", verifyFBToken, verifyAdmin, async (req, res) => {
       const users = await usersCollection.find().toArray();
       res.send(users);
     });
 
-    app.get("/users/:email/role", async (req, res) => {
+    app.get("/users/:email/role", verifyFBToken, async (req, res) => {
       const { email } = req.params;
       const query = { email };
       const role = await usersCollection.findOne(query, {
@@ -222,14 +270,19 @@ async function run() {
       res.send(role);
     });
 
-    app.patch("/users/:id/role", async (req, res) => {
-      const { id } = req.params;
-      const query = { _id: new ObjectId(id) };
-      const { role } = req.body;
-      const updateRole = { $set: { role } };
-      const result = await usersCollection.updateOne(query, updateRole);
-      res.send(result);
-    });
+    app.patch(
+      "/users/:id/role",
+      verifyFBToken,
+      verifyAdmin,
+      async (req, res) => {
+        const { id } = req.params;
+        const query = { _id: new ObjectId(id) };
+        const { role } = req.body;
+        const updateRole = { $set: { role } };
+        const result = await usersCollection.updateOne(query, updateRole);
+        res.send(result);
+      }
+    );
 
     // clubs related apis
     app.get("/clubs", async (req, res) => {
@@ -245,14 +298,14 @@ async function run() {
       res.send(clubs);
     });
 
-    app.get("/clubs/:id", async (req, res) => {
+    app.get("/clubs/:id", verifyFBToken, async (req, res) => {
       const club = await clubsCollection.findOne({
         _id: new ObjectId(req.params.id),
       });
       res.send(club);
     });
 
-    app.post("/clubs", async (req, res) => {
+    app.post("/clubs", verifyFBToken, verifyManager, async (req, res) => {
       const club = req.body;
       club.status = "pending";
       club.createdAt = new Date();
@@ -260,7 +313,7 @@ async function run() {
       res.send(result);
     });
 
-    app.patch("/clubs/:id", async (req, res) => {
+    app.patch("/clubs/:id", verifyFBToken, verifyManager, async (req, res) => {
       const query = { _id: new ObjectId(req.params.id) };
       const data = req.body;
       const update = { $set: data };
@@ -269,17 +322,21 @@ async function run() {
     });
 
     // For status update (Admin)
-    app.patch("/clubs/:id/status", async (req, res) => {
-      const query = { _id: new ObjectId(req.params.id) };
-      const { status } = req.body;
-      const updateStatus = { $set: { status } };
-      const result = await clubsCollection.updateOne(query, updateStatus);
-      res.send(result);
-    });
+    app.patch(
+      "/clubs/:id/status",
+      verifyFBToken,
+      verifyAdmin,
+      async (req, res) => {
+        const query = { _id: new ObjectId(req.params.id) };
+        const { status } = req.body;
+        const updateStatus = { $set: { status } };
+        const result = await clubsCollection.updateOne(query, updateStatus);
+        res.send(result);
+      }
+    );
 
     // membership apis
-
-    app.post("/memberships", async (req, res) => {
+    app.post("/memberships", verifyFBToken, async (req, res) => {
       const membership = req.body;
       membership.status = "active";
       membership.joinedAt = new Date();
@@ -297,7 +354,7 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/memberships", async (req, res) => {
+    app.get("/memberships", verifyFBToken, async (req, res) => {
       const { userEmail, clubId } = req.query;
       const query = {};
       if (clubId) {
@@ -311,7 +368,7 @@ async function run() {
     });
 
     // For club manager
-    app.patch("/memberships/:id/status", async (req, res) => {
+    app.patch("/memberships/:id/status", verifyFBToken, verifyManager, async (req, res) => {
       const query = { _id: new ObjectId(req.params.id) };
       const { status } = req.body;
       const updateStatus = { $set: { status } };
@@ -320,7 +377,7 @@ async function run() {
     });
 
     // events related api -------->
-    app.post("/events", async (req, res) => {
+    app.post("/events", verifyFBToken, verifyManager, async (req, res) => {
       const event = req.body;
       event.createdAt = new Date();
       const query = { _id: new ObjectId(event.clubId) };
@@ -344,7 +401,7 @@ async function run() {
       res.send(events);
     });
 
-    app.get("/events/:id", async (req, res) => {
+    app.get("/events/:id", verifyFBToken, async (req, res) => {
       const { id } = req.params;
       const query = { _id: new ObjectId(id) };
       const events = await eventsCollection.find(query).toArray();
