@@ -283,6 +283,16 @@ async function run() {
       const membership = req.body;
       membership.status = "active";
       membership.joinedAt = new Date();
+      const existing = await membershipsCollection.findOne({
+        userEmail: membership.userEmail,
+        clubId: membership.clubId,
+      });
+
+      if (existing) {
+        return res
+          .status(400)
+          .send({ message: "User is already a member of this club" });
+      }
       const result = await membershipsCollection.insertOne(membership);
       res.send(result);
     });
@@ -365,7 +375,20 @@ async function run() {
         userEmail: registration.userEmail,
       });
       if (isRegistered) {
-        return res.send({ message: "user already regisetered" });
+        return res
+          .status(400)
+          .send({ message: "User already registered for this event" });
+      }
+
+      const membership = await membershipsCollection.findOne({
+        userEmail,
+        clubId: registration.clubId,
+        status: "active",
+      });
+      if (!membership) {
+        return res
+          .status(403)
+          .send({ message: "You must be a member of this club to register" });
       }
       const result = await eventRegistrationsCollection.insertOne(registration);
       res.send(result);
@@ -430,7 +453,7 @@ async function run() {
     // Api for payment, stripe-chechkout-session
     app.post("/payment-checkout-session", async (req, res) => {
       const paymentInfo = req.body;
-      const amount = parseInt(paymentInfo.membershipFee);
+      const amount = Math.round(Number(paymentInfo.membershipFee) * 100);
       const session = await stripe.checkout.sessions.create({
         line_items: [
           {
@@ -447,8 +470,8 @@ async function run() {
         customer_email: paymentInfo.userEmail,
         mode: "payment",
         metadata: {
-          parcelId: paymentInfo.clubId,
-          parcelName: paymentInfo.clubName,
+          clubId: paymentInfo.clubId,
+          clubName: paymentInfo.clubName,
         },
         success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${process.env.SITE_DOMAIN}/dashboard/payment-cancel`,
@@ -456,15 +479,67 @@ async function run() {
       res.send({ url: session.url });
     });
 
+    // api for retrive stripes data after payment
+    app.post("/payment-success", async (req, res) => {
+      const sessionId = req.query.session_id;
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+      // prevent adding duplicate data into database
+      const transactionId = session.payment_intent;
+      const query = { transactionId: transactionId };
+      const paymentExist = await paymentsCollecttion.findOne(query);
+      if (paymentExist) {
+        return res.send({
+          message: "Already Exist",
+          transactionId,
+        });
+      }
+
+      const existingMembership = await membershipsCollection.findOne({
+        userEmail: session.customer_email,
+        clubId: session.metadata.clubId,
+      });
+
+      if (session.payment_status === "paid" && !existingMembership) {
+        const membership = {
+          userEmail: session.customer_email,
+          clubId: session.metadata.clubId,
+          paymentId: session.payment_intent,
+          status: "active",
+          joinedAt: new Date(),
+        };
+        console.log(session);
+        const membershipResult = await membershipsCollection.insertOne(
+          membership
+        );
+
+        // Added to Payment collection afted payment
+        const payment = {
+          amount: session.amount_subtotal / 100,
+          currency: session.currency,
+          customerEmail: session.customer_email,
+          clubId: session.metadata.clubId,
+          clubName: session.metadata.clubName,
+          transactionId: session.payment_intent,
+          paymentStatus: session.payment_status,
+          paidAt: new Date(),
+        };
+
+        if (session.payment_status === "paid") {
+          const resultPayment = await paymentsCollecttion.insertOne(payment);
+          res.send({
+            success: true,
+            transactionId: session.payment_intent,
+            membership: membershipResult,
+            paymentInfo: resultPayment,
+          });
+        }
+      }
+    });
+
     app.get("/payments", async (req, res) => {
       const query = {};
       const payments = await paymentsCollecttion.find(query).toArray();
-      res.send(payments);
-    });
-
-    app.post("/payments", async (req, res) => {
-      const paymentInfo = req.body;
-      const payments = await paymentsCollecttion.insertOne(paymentInfo);
       res.send(payments);
     });
 
