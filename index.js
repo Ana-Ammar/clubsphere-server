@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+const stripe = require("stripe")(process.env.STRIPE_SECRET);
 const app = express();
 const port = process.env.PORT || 5165;
 
@@ -282,12 +283,6 @@ async function run() {
       const membership = req.body;
       membership.status = "active";
       membership.joinedAt = new Date();
-      const isMember = await membershipsCollection.findOne({
-        userEmail: membership.userEmail,
-      });
-      if (isMember) {
-        return res.send({ message: "User already member of this club" });
-      }
       const result = await membershipsCollection.insertOne(membership);
       res.send(result);
     });
@@ -295,11 +290,11 @@ async function run() {
     app.get("/memberships", async (req, res) => {
       const { userEmail, clubId } = req.query;
       const query = {};
-      if (userEmail) {
-        query.userEmail = userEmail;
-      }
       if (clubId) {
         query.clubId = clubId;
+      }
+      if (userEmail) {
+        query.userEmail = userEmail;
       }
       const memberships = await membershipsCollection.find(query).toArray();
       res.send(memberships);
@@ -432,6 +427,34 @@ async function run() {
     });
 
     // payment related apis
+    // Api for payment, stripe-chechkout-session
+    app.post("/payment-checkout-session", async (req, res) => {
+      const paymentInfo = req.body;
+      const amount = parseInt(paymentInfo.membershipFee);
+      const session = await stripe.checkout.sessions.create({
+        line_items: [
+          {
+            price_data: {
+              currency: "usd",
+              unit_amount: amount,
+              product_data: {
+                name: paymentInfo.clubName,
+              },
+            },
+            quantity: 1,
+          },
+        ],
+        customer_email: paymentInfo.userEmail,
+        mode: "payment",
+        metadata: {
+          parcelId: paymentInfo.clubId,
+          parcelName: paymentInfo.clubName,
+        },
+        success_url: `${process.env.SITE_DOMAIN}/dashboard/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${process.env.SITE_DOMAIN}/dashboard/payment-cancel`,
+      });
+      res.send({ url: session.url });
+    });
 
     app.get("/payments", async (req, res) => {
       const query = {};
