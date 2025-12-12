@@ -408,7 +408,7 @@ async function run() {
       res.send(events);
     });
 
-    app.patch("/events/:id", async (req, res) => {
+    app.patch("/events/:id", verifyFBToken, verifyManager, async (req, res) => {
       const query = { _id: new ObjectId(req.params.id) };
       const data = req.body;
       const update = { $set: data };
@@ -416,7 +416,7 @@ async function run() {
       res.send(result);
     });
 
-    app.delete("/events/:id", async (req, res) => {
+    app.delete("/events/:id", verifyFBToken, verifyManager, async (req, res) => {
       const { id } = req.params;
       const query = { _id: new ObjectId(id) };
       const result = await eventsCollection.deleteOne(query);
@@ -424,12 +424,13 @@ async function run() {
     });
 
     // eventRegistrations
-    app.post("/eventRegistrations", async (req, res) => {
+    app.post("/eventRegistrations", verifyFBToken, async (req, res) => {
       const registration = req.body;
       registration.status = "registered";
       registration.registeredAt = new Date();
       const isRegistered = await eventRegistrationsCollection.findOne({
         userEmail: registration.userEmail,
+        eventId: registration.eventId
       });
       if (isRegistered) {
         return res
@@ -438,7 +439,7 @@ async function run() {
       }
 
       const membership = await membershipsCollection.findOne({
-        userEmail,
+        userEmail: registration.userEmail,
         clubId: registration.clubId,
         status: "active",
       });
@@ -451,7 +452,7 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/eventRegistrations", async (req, res) => {
+    app.get("/eventRegistrations", verifyFBToken, async (req, res) => {
       const { userEmail, eventId } = req.query;
       const query = {};
       if (userEmail) {
@@ -466,7 +467,7 @@ async function run() {
       res.send(eventRegistrations);
     });
 
-    app.get("/total-event-registration/:managerEmail", async (req, res) => {
+    app.get("/total-event-registration/:managerEmail", verifyFBToken, verifyManager, async (req, res) => {
       const { managerEmail } = req.params;
 
       const pipeline = [
@@ -501,14 +502,13 @@ async function run() {
           $replaceWith: "$events",
         },
       ];
-
       const result = await clubsCollection.aggregate(pipeline).toArray();
       res.send(result);
     });
 
     // payment related apis
     // Api for payment, stripe-chechkout-session
-    app.post("/payment-checkout-session", async (req, res) => {
+    app.post("/payment-checkout-session",verifyFBToken, async (req, res) => {
       const paymentInfo = req.body;
       const amount = Math.round(Number(paymentInfo.membershipFee) * 100);
       const session = await stripe.checkout.sessions.create({
@@ -537,7 +537,7 @@ async function run() {
     });
 
     // api for retrive stripes data after payment
-    app.post("/payment-success", async (req, res) => {
+    app.post("/payment-success", verifyFBToken, async (req, res) => {
       const sessionId = req.query.session_id;
       const session = await stripe.checkout.sessions.retrieve(sessionId);
 
@@ -594,7 +594,7 @@ async function run() {
       }
     });
 
-    app.get("/payments", async (req, res) => {
+    app.get("/payments", verifyFBToken, async (req, res) => {
       const query = {};
       const payments = await paymentsCollecttion.find(query).toArray();
       res.send(payments);
