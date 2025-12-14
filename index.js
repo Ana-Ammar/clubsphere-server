@@ -557,20 +557,10 @@ async function run() {
       const { managerEmail } = req.params;
       const clubs = await clubsCollection.find({ managerEmail }).toArray();
       const clubIds = clubs.map((c) => c._id.toString());
-      const clubMap = {};
-      clubs.forEach((c) => {
-        clubMap[c._id.toString()] = c.clubName;
-      });
       const payments = await paymentsCollecttion
-        .find({
-          clubId: { $in: clubIds },
-        })
+        .find({ clubId: { $in: clubIds } })
         .toArray();
-      const result = payments.map((payment) => ({
-        ...payment,
-        clubName: clubMap[payment.clubId] || "Unknown Club",
-      }));
-      res.send(result);
+      res.send(payments);
     });
 
     // payment related apis
@@ -662,20 +652,6 @@ async function run() {
     });
 
     app.get("/all-payments", async (req, res) => {
-      const clubs = await clubsCollection.find().toArray();
-      const clubMap = {};
-      clubs.forEach((c) => {
-        clubMap[c._id.toString()] = c.clubName;
-      });
-      const payments = await paymentsCollecttion.find().toArray();
-      const result = payments.map((payment) => ({
-        ...payment,
-        clubName: clubMap[payment.clubId] || "Unknown Club",
-      }));
-      res.send(result);
-    });
-
-    app.get("/payments", verifyFBToken, async (req, res) => {
       const query = {};
       const payments = await paymentsCollecttion.find(query).toArray();
       res.send(payments);
