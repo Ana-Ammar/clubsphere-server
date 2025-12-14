@@ -5,12 +5,12 @@ This is the **backend API server** for the ClubSphere application. It handles al
 ---
 
 ## 🌐 Live Website
-Frontend: https://clubsphere-client.vercel.app  
+Frontend: https://clubsphere-web.web.app  
 
 ---
 
 ## 🗂️ Frontend Repository
-- **Frontend:** https://github.com/your-username/clubsphere-server  
+- **Frontend:** https://github.com/Ana-Ammar/clubsphere-client.git 
 
 ---
 
