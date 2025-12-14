@@ -490,49 +490,57 @@ async function run() {
       res.send(eventRegistrations);
     });
 
-    app.get(
-      "/total-event-registration/:managerEmail",
-      verifyFBToken,
-      verifyManager,
-      async (req, res) => {
-        const { managerEmail } = req.params;
+    app.get("/total-event-registrations/:managerEmail", async (req, res) => {
+      const { managerEmail } = req.params;
+      const clubs = await clubsCollection.find({ managerEmail }).toArray();
+      const clubIds = clubs.map((c) => c._id.toString());
+      const clubMap = {};
+      clubs.forEach((c) => {
+        clubMap[c._id.toString()] = c.clubName;
+      });
+      const events = await eventsCollection
+        .find({
+          clubId: { $in: clubIds },
+        })
+        .toArray();
+      const eventMap = {};
+      events.forEach((e) => {
+        eventMap[e._id.toString()] = e.title;
+      });
+      const eventRegs = await eventRegistrationsCollection
+        .find({
+          clubId: { $in: clubIds },
+        })
+        .toArray();
+      const result = eventRegs.map((reg) => ({
+        ...reg,
+        clubName: clubMap[reg.clubId] || "Unknown Club",
+        eventName: eventMap[reg.eventId] || "Unknown Event",
+      }));
 
-        const pipeline = [
-          {
-            $match: { managerEmail: managerEmail },
-          },
+      res.send(result);
+    });
 
-          {
-            $lookup: {
-              from: "events",
-              localField: "_id",
-              foreignField: "clubId",
-              as: "events",
-            },
-          },
-          { $unwind: { path: "$events", preserveNullAndEmptyArrays: true } },
-
-          {
-            $lookup: {
-              from: "eventRegistrations",
-              localField: "events._id",
-              foreignField: "eventId",
-              as: "events.registrations",
-            },
-          },
-          {
-            $addFields: {
-              "events.clubName": "$clubName",
-            },
-          },
-          {
-            $replaceWith: "$events",
-          },
-        ];
-        const result = await clubsCollection.aggregate(pipeline).toArray();
-        res.send(result);
-      }
-    );
+    // total payments clubManger
+    app.get("/total-club-payments/:managerEmail", async (req, res) => {
+      const { managerEmail } = req.params;
+      const clubs = await clubsCollection.find({ managerEmail }).toArray();
+      const clubIds = clubs.map((c) => c._id.toString());
+      const clubMap = {};
+      clubs.forEach((c) => {
+        clubMap[c._id.toString()] = c.clubName;
+      });
+      const payments = await paymentsCollecttion
+        .find({
+          clubId: { $in: clubIds },
+        })
+        .toArray();
+      const result = payments.map((payment) => ({
+        ...payment,
+        clubName: clubMap[payment.clubId] || "Unknown Club",
+      }));
+      res.send(result);
+    });   
 
     // payment related apis
     // Api for payment, stripe-chechkout-session
