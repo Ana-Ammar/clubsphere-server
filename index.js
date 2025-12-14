@@ -287,12 +287,21 @@ async function run() {
     // clubs related apis
     app.get("/clubs", async (req, res) => {
       const query = {};
-      const { managerEmail, status } = req.query;
+      const { managerEmail, status, search, category } = req.query;
       if (managerEmail) {
         query.managerEmail = managerEmail;
       }
       if (status) {
         query.status = status;
+      }
+      if (search) {
+        query.clubName = {
+          $regex: search,
+          $options: "i",
+        };
+      }
+      if (category) {
+        query.category = category;
       }
       const clubs = await clubsCollection.find(query).toArray();
       res.send(clubs);
@@ -410,12 +419,34 @@ async function run() {
     });
 
     app.get("/events", async (req, res) => {
-      const { clubId } = req.query;
+      const { clubId, search, sort } = req.query;
       const query = {};
       if (clubId) {
         query.clubId = clubId;
       }
-      const events = await eventsCollection.find(query).toArray();
+      if (search) {
+        query.title = { $regex: search, $options: "i" };
+      }
+
+      let sortOption = { createdAt: -1 };
+      switch (sort) {
+        case "oldest":
+          sortOption = { createdAt: 1 };
+          break;
+        case "eventDateAsc":
+          sortOption = { eventDate: 1 };
+          break;
+        case "eventDateDesc":
+          sortOption = { eventDate: -1 };
+          break;
+        default:
+          sortOption = { createdAt: -1 };
+      }
+
+      const events = await eventsCollection
+        .find(query)
+        .sort(sortOption)
+        .toArray();
       res.send(events);
     });
 
@@ -540,7 +571,7 @@ async function run() {
         clubName: clubMap[payment.clubId] || "Unknown Club",
       }));
       res.send(result);
-    });   
+    });
 
     // payment related apis
     // Api for payment, stripe-chechkout-session
@@ -628,6 +659,20 @@ async function run() {
           });
         }
       }
+    });
+
+    app.get("/all-payments", async (req, res) => {
+      const clubs = await clubsCollection.find().toArray();
+      const clubMap = {};
+      clubs.forEach((c) => {
+        clubMap[c._id.toString()] = c.clubName;
+      });
+      const payments = await paymentsCollecttion.find().toArray();
+      const result = payments.map((payment) => ({
+        ...payment,
+        clubName: clubMap[payment.clubId] || "Unknown Club",
+      }));
+      res.send(result);
     });
 
     app.get("/payments", verifyFBToken, async (req, res) => {
